@@ -1,2 +1,0 @@
-# NNPTUD-S2
-Lớp NNPTUD-Sáng t2
