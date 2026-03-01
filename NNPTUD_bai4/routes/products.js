@@ -1163,95 +1163,157 @@ let data = [
     "updatedAt": "2026-02-01T22:01:05.000Z"
   }
 ];
-//getall
+// GET ALL
 router.get('/', function (req, res, next) {
-  let queries = req.query;
-  let titleQ = queries.title ? queries.title : '';
-  let minPrice = queries.minPrice ? queries.minPrice : 0;
-  let maxPrice = queries.maxPrice ? queries.maxPrice : 1E6;
-  let page = queries.page ? queries.page : 1;
-  let limit = queries.limit ? queries.limit : 10;
-  console.log(queries);
-  let result = data.filter(
-    function (e) {
-      return (!e.isDeleted) && e.title.includes(titleQ) &&
-        e.price >= minPrice && e.price <= maxPrice
-    }
-  );
-  result = result.splice(limit * (page - 1), limit)
+
+  let { title, minPrice, maxPrice, page, limit } = req.query;
+
+  title = title ? title : '';
+  minPrice = minPrice ? Number(minPrice) : 0;
+  maxPrice = maxPrice ? Number(maxPrice) : 1E6;
+  page = page ? Number(page) : 1;
+  limit = limit ? Number(limit) : 10;
+
+  // ===== VALIDATE =====
+  if (!Number.isInteger(page) || page <= 0) {
+    return res.status(400).send({ message: "page phải là số nguyên dương" });
+  }
+
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return res.status(400).send({ message: "limit phải là số nguyên dương" });
+  }
+
+  if (maxPrice < minPrice) {
+    return res.status(400).send({ message: "maxPrice phải >= minPrice" });
+  }
+
+  let result = data.filter(function (e) {
+    return (!e.isDeleted) &&
+      e.title.includes(title) &&
+      e.price >= minPrice &&
+      e.price <= maxPrice;
+  });
+
+  // PHÂN TRANG (dùng slice thay vì splice)
+  let start = limit * (page - 1);
+  let end = start + limit;
+
+  result = result.slice(start, end);
+
   res.send(result);
 });
-//get by ID
+
+
+// GET BY ID
 router.get('/:id', function (req, res, next) {
-  let result = data.find(
-    function (e) {
-      return e.id == req.params.id && (!e.isDeleted);
-    }
-  )
+
+  let result = data.find(function (e) {
+    return e.id == req.params.id && (!e.isDeleted);
+  });
+
   if (result) {
     res.send(result);
   } else {
-    res.status(404).send({
-      "message": "id not found"
-    });
+    res.status(404).send({ message: "id not found" });
   }
 });
 
 
+// GET BY SLUG (THÊM MỚI)
+router.get('/slug/:slug', function (req, res, next) {
+
+  let result = data.find(function (e) {
+    return e.slug === req.params.slug && (!e.isDeleted);
+  });
+
+  if (result) {
+    res.send(result);
+  } else {
+    res.status(404).send({ message: "slug not found" });
+  }
+});
+
+
+// POST
 router.post('/', function (req, res, next) {
+
+  let { title, price } = req.body;
+
+  // ===== VALIDATE =====
+  if (!title || !price) {
+    return res.status(400).send({ message: "title và price không được để trống" });
+  }
+
+  if (isNaN(price)) {
+    return res.status(400).send({ message: "price phải là số" });
+  }
+
   let newObj = {
     id: (getMaxID(data) + 1) + '',
-    title: req.body.title,
-    slug: ConvertTitleToSlug(req.body.title),
-    price: req.body.price,
+    title: title,
+    slug: ConvertTitleToSlug(title),
+    price: Number(price),
     description: req.body.description,
     category: req.body.category,
     images: req.body.images,
-    creationAt: new Date(Date.now()),
-    updatedAt: new Date(Date.now())
-  }
-  data.push(newObj);
-  console.log(data);
-  res.send(newObj);
-  //console.log(g);
-})
-router.put('/:id', function (req, res, next) {
-  let id = req.params.id;
-  let result = data.find(
-    function (e) {
-      return e.id == id;
-    }
-  )
-  if (result) {
-    let keys = Object.keys(req.body)
-    for (const key of keys) {
-      if (result[key]) {
-        result[key] = req.body[key];
-      }
-    }
-    res.send(result);
-  } else {
-    res.status(404).send({
-      "message": "id not found"
-    });
-  }
-})
-router.delete('/:id', function (req, res, next) {
-  let id = req.params.id;
-  let result = data.find(
-    function (e) {
-      return e.id == id;
-    }
-  )
-  if (result) {
-    result.isDeleted = true;
-    res.send(result)
-  } else {
-    res.status(404).send({
-      "message": "id not found"
-    });
+    isDeleted: false,
+    creationAt: new Date(),
+    updatedAt: new Date()
   }
 
-})
+  data.push(newObj);
+
+  res.send(newObj);
+});
+
+
+// PUT
+router.put('/:id', function (req, res, next) {
+
+  let id = req.params.id;
+
+  let result = data.find(function (e) {
+    return e.id == id && (!e.isDeleted);
+  });
+
+  if (result) {
+
+    let keys = Object.keys(req.body);
+
+    for (const key of keys) {
+      result[key] = req.body[key];
+    }
+
+    // Nếu update title thì update lại slug
+    if (req.body.title) {
+      result.slug = ConvertTitleToSlug(req.body.title);
+    }
+
+    result.updatedAt = new Date();
+
+    res.send(result);
+
+  } else {
+    res.status(404).send({ message: "id not found" });
+  }
+});
+
+
+// DELETE (SOFT DELETE)
+router.delete('/:id', function (req, res, next) {
+
+  let id = req.params.id;
+
+  let result = data.find(function (e) {
+    return e.id == id;
+  });
+
+  if (result) {
+    result.isDeleted = true;
+    res.send(result);
+  } else {
+    res.status(404).send({ message: "id not found" });
+  }
+});
 
 module.exports = router;
